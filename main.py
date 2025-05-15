@@ -96,14 +96,108 @@ def search_faiss_and_keywords(query, top_k=5):
     return combined_results
 
 
-query = "searching for woman realted books"
-results = search_faiss_and_keywords(query)
 
 
-for i, res in enumerate(results):
-    print(f"\nResult {i+1} (Score: {res['score']:.2f})")
-    print(f"Title: {res['title']}")
-    print(f"Author: {res['name']}")
-    print(f"Genre: {res['genre']}")
-    print(f"Description: {res['description'][:200]}...")
 
+import math
+from typing import List, Dict, Set, Tuple, Callable
+
+def precision_at_k(retrieved: List[str], relevant: Set[str], k: int = 5) -> float:
+    """
+    calculating precision at k
+    """
+    top_k = retrieved[:k]
+    if not top_k:
+        return 0.0
+    hits = sum(1 for doc in top_k if doc in relevant)
+    return hits / k
+
+def dcg_at_k(retrieved: List[str], relevant: Set[str], k: int = 5) -> float:
+    """
+    calculating dcg at k
+    """
+    dcg = 0.0
+    for i, doc in enumerate(retrieved[:k], start=1):
+        rel = 1 if doc in relevant else 0
+        dcg += rel / math.log2(i + 1)
+    return dcg
+
+def idcg_at_k(n_rel: int, k: int = 5) -> float:
+    """
+    idcg at k
+    """
+    idcg = 0.0
+    for i in range(1, min(n_rel, k) + 1):
+        idcg += 1 / math.log2(i + 1)
+    return idcg
+
+def ndcg_at_k(retrieved: List[str], relevant: Set[str], k: int = 5) -> float:
+    """
+    ndcg @ k
+    """
+    dcg = dcg_at_k(retrieved, relevant, k)
+    idcg = idcg_at_k(len(relevant), k)
+    return (dcg / idcg) if idcg > 0 else 0.0
+
+def evaluate(
+    queries: List[str],
+    ground_truth: Dict[str, Set[str]],
+    search_fn: Callable[[str, int], List[Dict]],
+    top_k: int = 5
+) -> Tuple[float, float]:
+
+    precisions = []
+    ndcgs = []
+
+    for query in queries:
+        results = search_fn(query, top_k)
+        retrieved_titles = [res['title'] for res in results]
+        relevant_set = ground_truth.get(query, set())
+
+        p = precision_at_k(retrieved_titles, relevant_set, top_k)
+        n = ndcg_at_k(retrieved_titles, relevant_set, top_k)
+
+        precisions.append(p)
+        ndcgs.append(n)
+
+        print(f"Query: {query!r}")
+        print(f"  Precision@{top_k}: {p:.3f}")
+        print(f"  nDCG@{top_k}:      {n:.3f}\n")
+
+    mean_p = sum(precisions) / len(precisions) if precisions else 0.0
+    mean_n = sum(ndcgs) / len(ndcgs) if ndcgs else 0.0
+
+    print(f"Mean Precision@{top_k}: {mean_p:.3f}")
+    print(f"Mean nDCG@{top_k}:      {mean_n:.3f}")
+
+    return mean_p, mean_n
+
+
+if __name__ == "__main__":
+    query = "searching for woman realted books"
+    results = search_faiss_and_keywords(query)
+
+
+    for i, res in enumerate(results):
+        print(f"\nResult {i+1} (Score: {res['score']:.2f})")
+        print(f"Title: {res['title']}")
+        print(f"Author: {res['name']}")
+        print(f"Genre: {res['genre']}")
+        print(f"Description: {res['description'][:200]}...")
+
+    # 1) ground truth:
+    ground_truth = {
+        "Sharp Objects": {
+            "Quantum Computation and Quantum Information",
+            "Modern Quantum Mechanics",
+            "Sharp Objects",
+        },
+        "Saga": {
+            "Saga Vol 1 Saga 1",
+            "Saga Vol 2 Saga 2",
+            "Saga Vol 3 Saga 3"
+        },
+    }
+    queries = list(ground_truth.keys())
+
+    evaluate(queries, ground_truth, search_faiss_and_keywords, top_k=5)
